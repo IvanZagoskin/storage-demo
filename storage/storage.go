@@ -6,43 +6,38 @@ import (
 	"errors"
 	"io"
 	"os"
+	"strconv"
 	"sync"
 	"time"
 )
 
 var (
-	errNilItem     = errors.New("item can't be nil")
-	errKeyNotFound = errors.New("key not found")
+	ErrNilItem     = errors.New("item can't be nil")
+	ErrKeyNotFound = errors.New("key not found")
 )
-
-// Key of storage
-type Key string
-
-// Value if storage
-type Value string
 
 // Item of storage
 type Item struct {
-	Key   Key
-	TTL   int64
-	Value Value
+	Key        string
+	Expiration int64
+	Value      string
 }
 
 // Storage is a thread-safety key/value storage
 type Storage struct {
 	sync.RWMutex
-	data       map[Key]*Item
+	data       map[string]*Item
 	shutdownCh chan struct{}
 	pathToBak  string
 }
 
 // NewStorage returns storage and starts job to delete expired items
-func NewStorage() (*Storage, error) {
+func NewStorage(pathToBak string, jobInterval time.Duration) (*Storage, error) {
 	storage := &Storage{
-		data:      make(map[Key]*Item, 0),
-		pathToBak: "storage.bak",
+		data:      make(map[string]*Item, 0),
+		pathToBak: pathToBak,
 	}
-	go storage.runTTLJob()
+	go storage.runTTLJob(jobInterval)
 
 	file, err := os.OpenFile(storage.pathToBak, os.O_RDONLY|os.O_CREATE, 0666)
 	if err != nil {
@@ -57,8 +52,8 @@ func NewStorage() (*Storage, error) {
 	return storage, nil
 }
 
-func (s *Storage) runTTLJob() {
-	ticker := time.NewTicker(2 * time.Second)
+func (s *Storage) runTTLJob(jobInterval time.Duration) {
+	ticker := time.NewTicker(jobInterval)
 	defer ticker.Stop()
 	for {
 		select {
@@ -66,10 +61,10 @@ func (s *Storage) runTTLJob() {
 			return
 		case <-ticker.C:
 			now := time.Now().Unix()
-			expiredKeys := make([]Key, 0)
+			expiredKeys := make([]string, 0)
 			s.RLock()
 			for key, val := range s.data {
-				if val.TTL >= now {
+				if val.Expiration <= now {
 					expiredKeys = append(expiredKeys, key)
 				}
 			}
@@ -85,29 +80,26 @@ func (s *Storage) runTTLJob() {
 }
 
 // Put is a method that adds or updates a value by key, and also sets the lifetime
-func (s *Storage) Put(item *Item) error {
-	if item == nil {
-		return errNilItem
-	}
+func (s *Storage) Put(key, value string, expirationTime int64) error {
 	s.RLock()
-	s.data[item.Key] = item
+	s.data[key] = &Item{Key: key, Value: value, Expiration: expirationTime}
 	s.RUnlock()
 	return nil
 }
 
 // Get returns value by key
-func (s *Storage) Get(key Key) (Value, error) {
+func (s *Storage) Get(key string) (string, error) {
 	s.RLock()
 	v, ok := s.data[key]
 	s.RUnlock()
 	if !ok {
-		return Value(""), errKeyNotFound
+		return "", ErrKeyNotFound
 	}
 	return v.Value, nil
 }
 
 // Delete deletes item from storage by key
-func (s *Storage) Delete(key Key) {
+func (s *Storage) Delete(key string) {
 	s.Lock()
 	delete(s.data, key)
 	s.Unlock()
@@ -140,7 +132,7 @@ func (s *Storage) Restore(reader io.Reader) error {
 		if err := json.Unmarshal(scaner.Bytes(), item); err != nil {
 			return err
 		}
-		s.Put(item)
+		s.Put(item.Key, item.Value, item.Expiration)
 	}
 
 	if err := scaner.Err(); err != nil {
@@ -152,6 +144,13 @@ func (s *Storage) Restore(reader io.Reader) error {
 
 // Shutdown is a method that stops starts job to delete expired items and backups data
 func (s *Storage) Shutdown() error {
+	_, err := os.Stat(s.pathToBak)
+	if !os.IsNotExist(err) {
+		if err := os.Rename(s.pathToBak, strconv.Itoa(int(time.Now().Unix()))+"_"+s.pathToBak); err != nil {
+			return err
+		}
+	}
+
 	file, err := os.OpenFile(s.pathToBak, os.O_RDONLY|os.O_CREATE, 0666)
 	if err != nil {
 		return err
