@@ -2,6 +2,7 @@ package server
 
 import (
 	"bufio"
+	"bytes"
 	"encoding/json"
 	"errors"
 	"io"
@@ -45,14 +46,10 @@ func (s *Server) ListenAndServe() error {
 	for {
 		conn, err := s.listener.Accept()
 		if err != nil {
-			// s.logger.Println(err)
+			s.logger.Println(err)
 			continue
 		}
 		s.logger.Println("accept conn ", conn.RemoteAddr())
-
-		if err := conn.SetDeadline(time.Now().Add(2 * time.Second)); err != nil {
-			s.logger.Println(err)
-		}
 
 		go s.handle(conn)
 	}
@@ -108,91 +105,94 @@ type UnexpectedRes struct {
 func (s *Server) handle(conn net.Conn) {
 	s.logger.Println("handle conn ", conn.RemoteAddr())
 	wConn := bufio.NewWriter(conn)
-	scanner := bufio.NewScanner(conn)
+	rConn := bufio.NewReader(conn)
 
 	for {
-		if !scanner.Scan() {
-			// s.logger.Println(scanner.Err())
-			if scanner.Err() != io.EOF {
-				continue
+		txt, err := rConn.ReadBytes(byte('\n'))
+		if err != nil {
+			time.Sleep(time.Second)
+			s.logger.Println(err)
+			if err == io.EOF {
+				conn.Close()
+				return
 			}
-			s.logger.Println("connection closed", conn.RemoteAddr())
-			conn.Close()
-			return
+			continue
 		}
 
-		switch typeMsg(scanner.Text()) {
-		case get:
-			if scanner.Scan() {
-				req := &GetReq{}
-				if err := json.Unmarshal(scanner.Bytes(), req); err != nil {
-					s.logger.Println(err)
-				}
-
-				value, err := s.service.Get(req.Key)
-				msgErr := ""
-				if err != nil {
-					msgErr = err.Error()
-				}
-
-				res, err := json.Marshal(&GetRes{Err: msgErr, Value: value})
-				if err != nil {
-					s.logger.Println(err)
-				}
-
-				if _, err := wConn.Write(append(res, []byte("\n")...)); err != nil {
-					s.logger.Println(err)
-				}
-				wConn.Flush()
+		switch {
+		case bytes.HasPrefix(txt, []byte("GET")):
+			s.logger.Println("GET")
+			txt = bytes.ReplaceAll(txt, []byte("GET"), []byte(""))
+			txt = bytes.TrimSpace(txt)
+			req := &GetReq{}
+			if err := json.Unmarshal(txt, req); err != nil {
+				s.logger.Println(err)
 			}
 
-		case put:
-			if scanner.Scan() {
-				msg := &PutReq{}
-				if err := json.Unmarshal(scanner.Bytes(), msg); err != nil {
-					s.logger.Println(err)
-				}
-
-				err := s.service.Put(msg.Key, msg.Value, msg.Expiration)
-				msgErr := ""
-				if err != nil {
-					msgErr = err.Error()
-				}
-
-				res, err := json.Marshal(&PutRes{Err: msgErr})
-				if err != nil {
-					s.logger.Println(err)
-				}
-
-				if _, err := wConn.Write(append(res, []byte("\n")...)); err != nil {
-					s.logger.Println(err)
-				}
-				wConn.Flush()
+			value, err := s.service.Get(req.Key)
+			msgErr := ""
+			if err != nil {
+				msgErr = err.Error()
 			}
 
-		case delete:
-			if scanner.Scan() {
-				msg := &DeleteReq{}
-				if err := json.Unmarshal(scanner.Bytes(), msg); err != nil {
-					s.logger.Println(err)
-				}
-
-				err := s.service.Delete(msg.Key)
-				msgErr := ""
-				if err != nil {
-					msgErr = err.Error()
-				}
-
-				res, err := json.Marshal(&DeleteRes{Err: msgErr})
-				if err != nil {
-					s.logger.Println(err)
-				}
-
-				if _, err := wConn.Write(append(res, []byte("\n")...)); err != nil {
-					s.logger.Println(err)
-				}
-				wConn.Flush()
+			res, err := json.Marshal(&GetRes{Err: msgErr, Value: value})
+			if err != nil {
+				s.logger.Println(err)
 			}
+
+			if _, err := wConn.Write(append(res, byte('\n'))); err != nil {
+				s.logger.Println(err)
+			}
+			wConn.Flush()
+
+		case bytes.HasPrefix(txt, []byte("PUT")):
+			txt = bytes.ReplaceAll(txt, []byte("PUT"), []byte(""))
+			txt = bytes.TrimSpace(txt)
+			msg := &PutReq{}
+			if err := json.Unmarshal(txt, msg); err != nil {
+				s.logger.Println(err)
+			}
+
+			err := s.service.Put(msg.Key, msg.Value, msg.Expiration)
+			msgErr := ""
+			if err != nil {
+				msgErr = err.Error()
+			}
+
+			res, err := json.Marshal(&PutRes{Err: msgErr})
+			if err != nil {
+				s.logger.Println(err)
+			}
+
+			if _, err := wConn.Write(append(res, byte('\n'))); err != nil {
+				s.logger.Println(err)
+			}
+			wConn.Flush()
+
+		case bytes.HasPrefix(txt, []byte("DELETE")):
+			txt = bytes.ReplaceAll(txt, []byte("DELETE"), []byte(""))
+			txt = bytes.TrimSpace(txt)
+			msg := &DeleteReq{}
+			if err := json.Unmarshal(txt, msg); err != nil {
+				s.logger.Println(err)
+			}
+
+			err := s.service.Delete(msg.Key)
+			msgErr := ""
+			if err != nil {
+				msgErr = err.Error()
+			}
+
+			res, err := json.Marshal(&DeleteRes{Err: msgErr})
+			if err != nil {
+				s.logger.Println(err)
+			}
+
+			if _, err := wConn.Write(append(res, byte('\n'))); err != nil {
+				s.logger.Println(err)
+			}
+			wConn.Flush()
+
 		default:
 			s.logger.Println("unexpected type of operation")
 			res, err := json.Marshal(&UnexpectedRes{Err: ErrUnexpectedTypeOp.Error()})
@@ -200,7 +200,7 @@ func (s *Server) handle(conn net.Conn) {
 				s.logger.Println(err)
 			}
 
-			if _, err := wConn.Write(append(res, []byte("\n")...)); err != nil {
+			if _, err := wConn.Write(append(res, byte('\n'))); err != nil {
 				s.logger.Println(err)
 			}
 			wConn.Flush()

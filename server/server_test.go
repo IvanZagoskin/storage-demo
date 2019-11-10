@@ -45,7 +45,7 @@ func TestServer(t *testing.T) {
 	defer conn.Close()
 
 	req, _ := json.Marshal(&server.GetReq{Key: "someKey"})
-	sReq := "GET\n" + string(req) + "\n"
+	sReq := "GET " + string(req) + newLine
 	if _, err := conn.Write([]byte(sReq)); err != nil {
 		t.Fatal(err)
 	}
@@ -139,7 +139,7 @@ func TestServerOperations(t *testing.T) {
 			t.Fatalf("failed %s.\nerr: %s", tc.name, err)
 		}
 
-		req := []byte(tc.typeOperation + newLine + string(data) + newLine)
+		req := []byte(tc.typeOperation + " " + string(data) + newLine)
 		if _, err := conn.Write(req); err != nil {
 			t.Fatalf("failed %s.\nerr: %s", tc.name, err)
 		}
