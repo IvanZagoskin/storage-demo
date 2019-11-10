@@ -25,7 +25,7 @@ type Item struct {
 
 // Storage is a thread-safety key/value storage
 type Storage struct {
-	sync.RWMutex
+	mu         sync.RWMutex
 	data       map[string]*Item
 	shutdownCh chan struct{}
 	pathToBak  string
@@ -62,18 +62,18 @@ func (s *Storage) runTTLJob(jobInterval time.Duration) {
 		case <-ticker.C:
 			now := time.Now().Unix()
 			expiredKeys := make([]string, 0)
-			s.RLock()
+			s.mu.RLock()
 			for key, val := range s.data {
 				if val.Expiration <= now {
 					expiredKeys = append(expiredKeys, key)
 				}
 			}
-			s.RUnlock()
+			s.mu.RUnlock()
 
 			for i := range expiredKeys {
-				s.Lock()
+				s.mu.Lock()
 				delete(s.data, expiredKeys[i])
-				s.Unlock()
+				s.mu.Unlock()
 			}
 		}
 	}
@@ -81,17 +81,17 @@ func (s *Storage) runTTLJob(jobInterval time.Duration) {
 
 // Put is a method that adds or updates a value by key, and also sets the lifetime
 func (s *Storage) Put(key, value string, expirationTime int64) error {
-	s.RLock()
+	s.mu.RLock()
 	s.data[key] = &Item{Key: key, Value: value, Expiration: expirationTime}
-	s.RUnlock()
+	s.mu.RUnlock()
 	return nil
 }
 
 // Get returns value by key
 func (s *Storage) Get(key string) (string, error) {
-	s.RLock()
+	s.mu.RLock()
 	v, ok := s.data[key]
-	s.RUnlock()
+	s.mu.RUnlock()
 	if !ok {
 		return "", ErrKeyNotFound
 	}
@@ -100,15 +100,20 @@ func (s *Storage) Get(key string) (string, error) {
 
 // Delete deletes item from storage by key
 func (s *Storage) Delete(key string) {
-	s.Lock()
+	s.mu.Lock()
 	delete(s.data, key)
-	s.Unlock()
+	s.mu.Unlock()
+}
+
+func (s *Storage) reset() {
+	s.mu.Lock()
+	s.mu.Unlock()
 }
 
 // Backup is a method that backup storage data to writer
 func (s *Storage) Backup(writer io.Writer) error {
-	s.RLock()
-	defer s.RUnlock()
+	s.mu.RLock()
+	defer s.mu.RUnlock()
 	var buf []byte
 	var err error
 	for _, val := range s.data {
