@@ -26,7 +26,7 @@ type Item struct {
 // Storage is a thread-safety key/value storage
 type Storage struct {
 	mu         sync.RWMutex
-	data       map[string]*Item
+	data       map[string]Item
 	shutdownCh chan struct{}
 	pathToBak  string
 }
@@ -34,7 +34,7 @@ type Storage struct {
 // NewStorage returns storage and starts job to delete expired items
 func NewStorage(pathToBak string, jobInterval time.Duration) (*Storage, error) {
 	storage := &Storage{
-		data:      make(map[string]*Item, 0),
+		data:      make(map[string]Item, 0),
 		pathToBak: pathToBak,
 	}
 	go storage.runTTLJob(jobInterval)
@@ -81,9 +81,9 @@ func (s *Storage) runTTLJob(jobInterval time.Duration) {
 
 // Put is a method that adds or updates a value by key, and also sets the lifetime
 func (s *Storage) Put(key, value string, expirationTime int64) error {
-	s.mu.RLock()
-	s.data[key] = &Item{Key: key, Value: value, Expiration: expirationTime}
-	s.mu.RUnlock()
+	s.mu.Lock()
+	s.data[key] = Item{Key: key, Value: value, Expiration: expirationTime}
+	s.mu.Unlock()
 	return nil
 }
 
