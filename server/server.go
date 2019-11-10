@@ -3,11 +3,15 @@ package server
 import (
 	"bufio"
 	"encoding/json"
+	"errors"
+	"io"
 	"log"
 	"net"
 	"os"
 	"time"
 )
+
+var ErrUnexpectedTypeOp = errors.New("unexpected type of operation")
 
 type Service interface {
 	Put(key, value string, expirationTime int64) error
@@ -16,6 +20,7 @@ type Service interface {
 }
 
 type Server struct {
+	listener   net.Listener
 	service    Service
 	logger     *log.Logger
 	shutdownCh chan struct{}
@@ -31,38 +36,34 @@ func NewServer(service Service) *Server {
 }
 
 func (s *Server) ListenAndServe() error {
-	s.logger.Println("start tcp server on port :8080")
-	listener, err := net.Listen("tcp", ":8080")
+	var err error
+	s.listener, err = net.Listen("tcp", ":8080")
 	if err != nil {
 		return err
 	}
-	i := 0
-	defer listener.Close()
+	s.logger.Println("start tcp server on port :8080")
 	for {
-		i++
-		s.logger.Println(i)
-		select {
-		case <-s.shutdownCh:
-			return nil
-		default:
-			conn, err := listener.Accept()
-			if err != nil {
-				s.logger.Println(err)
-				continue
-			}
-			s.logger.Println("accept conn ", conn.RemoteAddr())
-
-			if err := conn.SetDeadline(time.Now().Add(time.Second)); err != nil {
-				s.logger.Println(err)
-			}
-
-			go s.handle(conn)
+		conn, err := s.listener.Accept()
+		if err != nil {
+			// s.logger.Println(err)
+			continue
 		}
+		s.logger.Println("accept conn ", conn.RemoteAddr())
+
+		if err := conn.SetDeadline(time.Now().Add(2 * time.Second)); err != nil {
+			s.logger.Println(err)
+		}
+
+		go s.handle(conn)
 	}
 }
 
-func (s *Server) Shutdown() {
-	s.shutdownCh <- struct{}{}
+func (s *Server) Shutdown() error {
+	if err := s.listener.Close(); err != nil {
+		s.logger.Println(err)
+		return err
+	}
+	return nil
 }
 
 type typeMsg string
@@ -100,14 +101,21 @@ type PutRes struct {
 	Err error
 }
 
+type UnexpectedRes struct {
+	Err error
+}
+
 func (s *Server) handle(conn net.Conn) {
-	s.logger.Println("handle conn ", conn.LocalAddr())
+	s.logger.Println("handle conn ", conn.RemoteAddr())
 	wConn := bufio.NewWriter(conn)
 	scanner := bufio.NewScanner(conn)
 
 	for {
 		if !scanner.Scan() {
-			s.logger.Println(scanner.Err())
+			// s.logger.Println(scanner.Err())
+			if scanner.Err() != io.EOF {
+				continue
+			}
 			s.logger.Println("connection closed", conn.RemoteAddr())
 			conn.Close()
 			return
@@ -146,9 +154,10 @@ func (s *Server) handle(conn net.Conn) {
 					s.logger.Println(err)
 				}
 
-				if _, err := wConn.Write(res); err != nil {
+				if _, err := wConn.Write(append(res, []byte("\n")...)); err != nil {
 					s.logger.Println(err)
 				}
+				wConn.Flush()
 			}
 
 		case delete:
@@ -164,16 +173,22 @@ func (s *Server) handle(conn net.Conn) {
 					s.logger.Println(err)
 				}
 
-				if _, err := wConn.Write(res); err != nil {
+				if _, err := wConn.Write(append(res, []byte("\n")...)); err != nil {
 					s.logger.Println(err)
 				}
+				wConn.Flush()
 			}
 		default:
 			s.logger.Println("unexpected type of operation")
-			res := []byte("unexpected type of operation")
-			if _, err := wConn.Write(res); err != nil {
+			res, err := json.Marshal(&UnexpectedRes{Err: ErrUnexpectedTypeOp})
+			if err != nil {
 				s.logger.Println(err)
 			}
+
+			if _, err := wConn.Write(append(res, []byte("\n")...)); err != nil {
+				s.logger.Println(err)
+			}
+			wConn.Flush()
 		}
 	}
 }

@@ -3,7 +3,7 @@ package service
 type Repository interface {
 	Put(key, value string, expirationTime int64) error
 	Get(key string) (string, error)
-	Delete(key string)
+	Delete(key string) error
 }
 
 type Service struct {
@@ -22,6 +22,6 @@ func (s *Service) Put(key, value string, expirationTime int64) error {
 	return s.repository.Put(key, value, expirationTime)
 }
 
-func (s *Service) Delete(key string) {
-	s.repository.Delete(key)
+func (s *Service) Delete(key string) error {
+	return s.repository.Delete(key)
 }

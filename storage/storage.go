@@ -33,6 +33,10 @@ type Storage struct {
 
 // NewStorage returns storage and starts job to delete expired items
 func NewStorage(pathToBak string, jobInterval time.Duration) (*Storage, error) {
+	if pathToBak == "" {
+		pathToBak = "storage.bak"
+	}
+
 	storage := &Storage{
 		data:      make(map[string]Item, 0),
 		pathToBak: pathToBak,
@@ -99,10 +103,20 @@ func (s *Storage) Get(key string) (string, error) {
 }
 
 // Delete deletes item from storage by key
-func (s *Storage) Delete(key string) {
+func (s *Storage) Delete(key string) error {
+
+	s.mu.RLock()
+	_, ok := s.data[key]
+	s.mu.RUnlock()
+	if !ok {
+		return ErrKeyNotFound
+	}
+
 	s.mu.Lock()
 	delete(s.data, key)
 	s.mu.Unlock()
+
+	return nil
 }
 
 func (s *Storage) reset() {
