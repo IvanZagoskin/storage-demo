@@ -80,7 +80,7 @@ type GetReq struct {
 
 type GetRes struct {
 	Value string
-	Err   error
+	Err   string
 }
 
 type DeleteReq struct {
@@ -88,7 +88,7 @@ type DeleteReq struct {
 }
 
 type DeleteRes struct {
-	Err error
+	Err string
 }
 
 type PutReq struct {
@@ -98,11 +98,11 @@ type PutReq struct {
 }
 
 type PutRes struct {
-	Err error
+	Err string
 }
 
 type UnexpectedRes struct {
-	Err error
+	Err string
 }
 
 func (s *Server) handle(conn net.Conn) {
@@ -130,7 +130,12 @@ func (s *Server) handle(conn net.Conn) {
 				}
 
 				value, err := s.service.Get(req.Key)
-				res, err := json.Marshal(&GetRes{Err: err, Value: value})
+				msgErr := ""
+				if err != nil {
+					msgErr = err.Error()
+				}
+
+				res, err := json.Marshal(&GetRes{Err: msgErr, Value: value})
 				if err != nil {
 					s.logger.Println(err)
 				}
@@ -149,7 +154,12 @@ func (s *Server) handle(conn net.Conn) {
 				}
 
 				err := s.service.Put(msg.Key, msg.Value, msg.Expiration)
-				res, err := json.Marshal(&PutRes{Err: err})
+				msgErr := ""
+				if err != nil {
+					msgErr = err.Error()
+				}
+
+				res, err := json.Marshal(&PutRes{Err: msgErr})
 				if err != nil {
 					s.logger.Println(err)
 				}
@@ -168,7 +178,12 @@ func (s *Server) handle(conn net.Conn) {
 				}
 
 				err := s.service.Delete(msg.Key)
-				res, err := json.Marshal(&DeleteRes{Err: err})
+				msgErr := ""
+				if err != nil {
+					msgErr = err.Error()
+				}
+
+				res, err := json.Marshal(&DeleteRes{Err: msgErr})
 				if err != nil {
 					s.logger.Println(err)
 				}
@@ -180,7 +195,7 @@ func (s *Server) handle(conn net.Conn) {
 			}
 		default:
 			s.logger.Println("unexpected type of operation")
-			res, err := json.Marshal(&UnexpectedRes{Err: ErrUnexpectedTypeOp})
+			res, err := json.Marshal(&UnexpectedRes{Err: ErrUnexpectedTypeOp.Error()})
 			if err != nil {
 				s.logger.Println(err)
 			}

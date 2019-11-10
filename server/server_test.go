@@ -60,7 +60,7 @@ func TestServer(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	if res.Value != "someKey" || res.Err != nil {
+	if res.Value != "someKey" || res.Err != "" {
 		t.Errorf("unexpected result %+v", res)
 	}
 }
@@ -99,31 +99,31 @@ func TestServerOperations(t *testing.T) {
 			name:          "simple put",
 			typeOperation: "PUT",
 			data:          &server.PutReq{Value: "1", Key: "1", Expiration: time.Now().Add(time.Minute).Unix()},
-			expectedRes:   &server.PutRes{Err: nil},
+			expectedRes:   &server.PutRes{Err: ""},
 		},
 		{
 			name:          "simple get",
 			typeOperation: "GET",
 			data:          &server.GetReq{Key: "1"},
-			expectedRes:   &server.GetRes{Value: "1", Err: nil},
+			expectedRes:   &server.GetRes{Value: "1", Err: ""},
 		},
 		{
 			name:          "simple delete",
 			typeOperation: "DELETE",
 			data:          &server.DeleteReq{Key: "1"},
-			expectedRes:   &server.DeleteRes{Err: nil},
+			expectedRes:   &server.DeleteRes{Err: ""},
 		},
 		{
 			name:          "simple delete(2)",
 			typeOperation: "DELETE",
 			data:          &server.DeleteReq{Key: "2"},
-			expectedRes:   &server.DeleteRes{Err: storage.ErrKeyNotFound},
+			expectedRes:   &server.DeleteRes{Err: storage.ErrKeyNotFound.Error()},
 		},
 		{
 			name:          "simple delete",
 			typeOperation: "STRANGERTHING",
 			data:          &server.DeleteReq{Key: "1"},
-			expectedRes:   &server.UnexpectedRes{Err: server.ErrUnexpectedTypeOp},
+			expectedRes:   &server.UnexpectedRes{Err: server.ErrUnexpectedTypeOp.Error()},
 		},
 	}
 
