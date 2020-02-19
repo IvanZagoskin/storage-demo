@@ -184,3 +184,5 @@ func (s *Storage) Shutdown() error {
 }
 
 func (s *Storage) DoSomething() {}
+
+func (s *Storage) DoSomethingV4() {}
