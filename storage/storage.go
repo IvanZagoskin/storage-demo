@@ -182,3 +182,5 @@ func (s *Storage) Shutdown() error {
 
 	return nil
 }
+
+func (s *Storage) DoSomething() {}
